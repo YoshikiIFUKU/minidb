@@ -1,0 +1,7 @@
+# ビルド成果物（build.sh で再生成できる）
+dist/
+minidb
+minidb.exe
+
+# 実行時に作られるデータ
+data/

@@ -1,0 +1,3 @@
+* text=auto
+# Mac/Linux でそのまま実行できるよう、シェルスクリプトは常に LF
+*.sh text eol=lf

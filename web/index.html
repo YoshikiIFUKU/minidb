@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MiniDb 管理画面</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --text: #1d2330; --muted: #667085; --line: #e2e5ea;
+    --accent: #2563eb; --accent-text: #fff; --danger: #c02626; --cell: #fff; --cell-focus: #eef4ff;
+    --dirty: #b45309; --code: #f1f3f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171c; --panel: #1c2027; --text: #e6e8ec; --muted: #98a2b3; --line: #2e343e;
+      --accent: #4f86f7; --accent-text: #fff; --danger: #f06262; --cell: #1c2027; --cell-focus: #243047;
+      --dirty: #f0a64a; --code: #252a33;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif;
+         background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: baseline; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { margin: 0; font-size: 18px; }
+  header .dir { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  .layout { display: grid; grid-template-columns: 260px 1fr; min-height: calc(100vh - 50px); }
+  aside { border-right: 1px solid var(--line); background: var(--panel); padding: 16px; }
+  aside h2, main h2 { font-size: 13px; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+  .tables { list-style: none; margin: 0 0 20px; padding: 0; }
+  .tables li button { width: 100%; text-align: left; border: 0; background: none; color: var(--text); padding: 6px 10px;
+                      border-radius: 6px; cursor: pointer; font: inherit; }
+  .tables li button:hover { background: var(--cell-focus); }
+  .tables li button.active { background: var(--accent); color: var(--accent-text); }
+  .empty { color: var(--muted); font-size: 13px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 2px; }
+  input[type=text], select { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
+                             background: var(--cell); color: var(--text); font: inherit; }
+  button.btn { padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+               color: var(--text); font: inherit; cursor: pointer; white-space: nowrap; }
+  button.btn:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button.danger { color: var(--danger); }
+  .stack { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .hint { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
+  main { padding: 20px; min-width: 0; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .toolbar .title { font-size: 18px; font-weight: 600; margin-right: 8px; }
+  .toolbar .spacer { flex: 1; }
+  .dirty { color: var(--dirty); font-size: 13px; }
+  .grid-wrap { overflow: auto; max-height: max(260px, calc(100vh - 290px)); border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  table.grid { border-collapse: collapse; min-width: 100%; }
+  .grid th, .grid td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 0; }
+  .grid thead th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
+  .grid .num { width: 44px; text-align: center; color: var(--muted); font-size: 12px; padding: 0 6px; }
+  .grid input { width: 100%; min-width: 120px; border: 0; padding: 7px 8px; background: transparent; color: var(--text); font: inherit; }
+  .grid input:focus { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--cell-focus); }
+  .grid thead input { font-weight: 600; }
+  .colhead { display: flex; align-items: center; }
+  .x { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 4px 8px; font-size: 14px; }
+  .x:hover { color: var(--danger); }
+  .cli { margin-top: 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  .cli code { display: block; background: var(--code); padding: 8px 10px; border-radius: 6px; margin-top: 6px;
+              font: 13px ui-monospace, Consolas, monospace; overflow-x: auto; white-space: pre; }
+  .cli .row { display: flex; gap: 8px; align-items: flex-end; }
+  .cli .row code { flex: 1; }
+  .placeholder { color: var(--muted); padding: 40px 0; text-align: center; }
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 10px 16px; border-radius: 8px;
+           background: var(--text); color: var(--bg); opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; }
+  #toast.show { opacity: 1; }
+  #toast.error { background: var(--danger); color: #fff; }
+  .file { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MiniDb 管理画面</h1>
+  <span class="dir" id="dataDir"></span>
+</header>
+<div class="layout">
+  <aside>
+    <h2>テーブル</h2>
+    <ul class="tables" id="tableList"></ul>
+
+    <h2>新しいテーブル</h2>
+    <label for="newName">テーブル名</label>
+    <input type="text" id="newName" placeholder="例: users">
+    <label for="newCols">カラム（カンマ区切り）</label>
+    <input type="text" id="newCols" placeholder="例: id,name,age">
+    <div class="stack">
+      <button class="btn primary" id="createBtn">作成</button>
+      <button class="btn" id="createFromFileBtn">CSVファイルから作成…</button>
+    </div>
+    <p class="hint">CSVファイルから作成すると、1行目がカラム名、2行目以降がデータになります。テーブル名が空ならファイル名を使います。</p>
+    <input type="file" class="file" id="newFile" accept=".csv,.tsv,.txt">
+  </aside>
+
+  <main id="main">
+    <div class="placeholder" id="placeholder">左の一覧からテーブルを選ぶか、新しいテーブルを作成してください。</div>
+    <div id="editor" hidden>
+      <div class="toolbar">
+        <span class="title" id="tableTitle"></span>
+        <span class="dirty" id="dirtyMark" hidden>● 未保存の変更があります</span>
+        <span class="spacer"></span>
+        <button class="btn" id="addRowBtn">行を追加</button>
+        <button class="btn" id="addColBtn">カラムを追加</button>
+        <button class="btn" id="importBtn">CSVインポート…</button>
+        <select id="importMode" title="インポート方法" style="width:auto">
+          <option value="append">追記する</option>
+          <option value="replace">置き換える</option>
+        </select>
+        <button class="btn primary" id="saveBtn">保存</button>
+        <button class="btn danger" id="dropBtn">テーブル削除</button>
+        <input type="file" class="file" id="importFile" accept=".csv,.tsv,.txt">
+      </div>
+      <div class="grid-wrap"><table class="grid" id="grid"></table></div>
+      <p class="hint" id="rowCount"></p>
+
+      <div class="cli">
+        <h2>他のシステムから使うコマンド（結果が標準出力に出ます）</h2>
+        <div class="row"><code id="cliAll"></code><button class="btn" data-copy="cliAll">コピー</button></div>
+        <div class="row"><code id="cliCols"></code><button class="btn" data-copy="cliCols">コピー</button></div>
+        <p class="hint">--format json / tsv で形式を変更、--no-header で見出し行なし、--encoding sjis で Shift_JIS 出力。</p>
+      </div>
+    </div>
+  </main>
+</div>
+<div id="toast"></div>
+
+<script>
+const token = location.hash.slice(1);
+const $ = id => document.getElementById(id);
+let tables = [];
+let current = null; // { name, columns: [], rows: [[]] }
+let dirty = false;
+
+async function api(method, path, body, rawBody) {
+  const headers = { 'X-Token': token };
+  let payload;
+  if (rawBody !== undefined) payload = rawBody;
+  else if (body !== undefined) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
+  const res = await fetch(path, { method, headers, body: payload });
+  const data = await res.json().catch(() => ({ error: res.status === 403 ? '接続できません。コンソールに表示されたURLから開き直してください。' : res.statusText }));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+function toast(msg, isError) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'show' + (isError ? ' error' : '');
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.className = '', isError ? 5000 : 2200);
+}
+
+async function run(fn) {
+  try { await fn(); } catch (e) { toast(e.message, true); }
+}
+
+function setDirty(v) {
+  dirty = v;
+  $('dirtyMark').hidden = !v;
+}
+
+function confirmDiscard() {
+  return !dirty || confirm('未保存の変更があります。破棄してよろしいですか？');
+}
+
+async function loadTables() {
+  tables = await api('GET', '/api/tables');
+  const ul = $('tableList');
+  ul.innerHTML = '';
+  if (tables.length === 0) {
+    ul.innerHTML = '<li class="empty">テーブルはまだありません</li>';
+  }
+  for (const name of tables) {
+    const li = document.createElement('li');
+    const b = document.createElement('button');
+    b.textContent = name;
+    if (current && current.name === name) b.className = 'active';
+    b.onclick = () => { if (confirmDiscard()) run(() => openTable(name)); };
+    li.appendChild(b);
+    ul.appendChild(li);
+  }
+}
+
+async function openTable(name) {
+  const t = await api('GET', '/api/tables/' + encodeURIComponent(name));
+  current = { name, columns: t.columns, rows: t.rows };
+  setDirty(false);
+  $('placeholder').hidden = true;
+  $('editor').hidden = false;
+  $('tableTitle').textContent = name;
+  renderGrid();
+  await loadTables();
+}
+
+function closeTable() {
+  current = null;
+  setDirty(false);
+  $('editor').hidden = true;
+  $('placeholder').hidden = false;
+}
+
+function cellInput(value, onInput) {
+  const i = document.createElement('input');
+  i.type = 'text';
+  i.value = value;
+  i.oninput = () => { onInput(i.value); setDirty(true); updateCli(); };
+  return i;
+}
+
+function renderGrid() {
+  const g = $('grid');
+  g.innerHTML = '';
+  const thead = g.createTHead();
+  const hr = thead.insertRow();
+  const corner = document.createElement('th');
+  corner.className = 'num';
+  corner.textContent = '#';
+  hr.appendChild(corner);
+  current.columns.forEach((c, ci) => {
+    const th = document.createElement('th');
+    const wrap = document.createElement('div');
+    wrap.className = 'colhead';
+    const inp = cellInput(c, v => { current.columns[ci] = v; });
+    inp.title = 'カラム名（クリックで変更）';
+    const x = document.createElement('button');
+    x.className = 'x';
+    x.textContent = '×';
+    x.title = 'このカラムを削除';
+    x.onclick = () => {
+      if (!confirm(`カラム「${current.columns[ci]}」と、その値をすべて削除しますか？（保存するまでファイルには反映されません）`)) return;
+      current.columns.splice(ci, 1);
+      current.rows.forEach(r => r.splice(ci, 1));
+      setDirty(true);
+      renderGrid();
+    };
+    wrap.append(inp, x);
+    th.appendChild(wrap);
+    hr.appendChild(th);
+  });
+  hr.appendChild(document.createElement('th'));
+
+  const tbody = g.createTBody();
+  current.rows.forEach((row, ri) => {
+    const tr = tbody.insertRow();
+    const n = tr.insertCell();
+    n.className = 'num';
+    n.textContent = ri + 1;
+    current.columns.forEach((_, ci) => {
+      tr.insertCell().appendChild(cellInput(row[ci] ?? '', v => { row[ci] = v; }));
+    });
+    const del = tr.insertCell();
+    const x = document.createElement('button');
+    x.className = 'x';
+    x.textContent = '×';
+    x.title = 'この行を削除';
+    x.onclick = () => { current.rows.splice(ri, 1); setDirty(true); renderGrid(); };
+    del.appendChild(x);
+  });
+  $('rowCount').textContent = `${current.rows.length} 行 / ${current.columns.length} カラム`;
+  updateCli();
+}
+
+function quoteArg(s) {
+  return /^[\w\-.,]+$/.test(s) ? s : `"${s.replace(/"/g, '\\"')}"`;
+}
+
+function updateCli() {
+  if (!current) return;
+  const n = quoteArg(current.name);
+  $('cliAll').textContent = `minidb select ${n}`;
+  const cols = current.columns.filter(c => c.trim());
+  const pick = cols.slice(0, 2).join(',');
+  const where = cols[0] ? ` --where ${quoteArg(cols[0] + '=' + (current.rows[0]?.[0] ?? '値'))}` : '';
+  $('cliCols').textContent = `minidb select ${n} ${quoteArg(pick || '*')}${where} --format json`;
+}
+
+async function save() {
+  const cols = current.columns.map(c => c.trim());
+  if (cols.some(c => !c)) throw new Error('空のカラム名があります');
+  await api('PUT', '/api/tables/' + encodeURIComponent(current.name), { columns: cols, rows: current.rows });
+  current.columns = cols;
+  setDirty(false);
+  toast('保存しました');
+}
+
+function readFile(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(new Error('ファイルを読み込めませんでした'));
+    r.readAsArrayBuffer(file);
+  });
+}
+
+async function importInto(name, file, mode) {
+  const buf = await readFile(file);
+  const q = `?mode=${mode}&filename=${encodeURIComponent(file.name)}`;
+  const res = await api('POST', '/api/tables/' + encodeURIComponent(name) + '/import' + q, undefined, buf);
+  return res.count;
+}
+
+$('createBtn').onclick = () => run(async () => {
+  const name = $('newName').value.trim();
+  const cols = $('newCols').value.split(',').map(s => s.trim()).filter(Boolean);
+  if (!name) throw new Error('テーブル名を入力してください');
+  if (!cols.length) throw new Error('カラムを1つ以上入力してください');
+  if (!confirmDiscard()) return;
+  await api('POST', '/api/tables', { name, columns: cols });
+  $('newName').value = ''; $('newCols').value = '';
+  toast(`テーブル「${name}」を作成しました`);
+  await openTable(name);
+});
+
+$('createFromFileBtn').onclick = () => { if (confirmDiscard()) $('newFile').click(); };
+$('newFile').onchange = e => run(async () => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const name = $('newName').value.trim() || file.name.replace(/\.[^.]+$/, '');
+  if (tables.includes(name)) throw new Error(`テーブル「${name}」は既にあります。そのテーブルを開いて「CSVインポート」を使ってください`);
+  const n = await importInto(name, file, 'append');
+  $('newName').value = ''; $('newCols').value = '';
+  toast(`テーブル「${name}」を作成し、${n} 行を取り込みました`);
+  await openTable(name);
+});
+
+$('addRowBtn').onclick = () => {
+  current.rows.push(current.columns.map(() => ''));
+  setDirty(true);
+  renderGrid();
+  const inputs = $('grid').tBodies[0].rows[current.rows.length - 1].querySelectorAll('input');
+  inputs[0]?.focus();
+};
+
+$('addColBtn').onclick = () => {
+  const name = prompt('追加するカラム名');
+  if (!name || !name.trim()) return;
+  if (current.columns.some(c => c.toLowerCase() === name.trim().toLowerCase())) { toast('同じ名前のカラムがあります', true); return; }
+  current.columns.push(name.trim());
+  current.rows.forEach(r => r.push(''));
+  setDirty(true);
+  renderGrid();
+};
+
+$('saveBtn').onclick = () => run(save);
+
+$('importBtn').onclick = () => { if (confirmDiscard()) $('importFile').click(); };
+$('importFile').onchange = e => run(async () => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const mode = $('importMode').value;
+  if (mode === 'replace' && !confirm(`テーブル「${current.name}」の内容を、ファイルの内容で置き換えます。よろしいですか？`)) return;
+  const n = await importInto(current.name, file, mode);
+  toast(`${n} 行を取り込みました`);
+  await openTable(current.name);
+});
+
+$('dropBtn').onclick = () => run(async () => {
+  if (!confirm(`テーブル「${current.name}」を削除します。元に戻せません。よろしいですか？`)) return;
+  await api('DELETE', '/api/tables/' + encodeURIComponent(current.name));
+  toast(`テーブル「${current.name}」を削除しました`);
+  closeTable();
+  await loadTables();
+});
+
+document.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
+  const text = $(b.dataset.copy).textContent;
+  try { await navigator.clipboard.writeText(text); toast('コピーしました'); }
+  catch { toast('コピーできませんでした。選択してコピーしてください', true); }
+});
+
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's' && current) { e.preventDefault(); run(save); }
+});
+window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+run(async () => {
+  if (!token) throw new Error('接続情報がありません。コンソールに表示されたURLから開いてください。');
+  const i = await api('GET', '/api/info');
+  $('dataDir').textContent = `v${i.version} ・ データ保存先: ${i.dataDir}`;
+  await loadTables();
+});
+</script>
+</body>
+</html>
