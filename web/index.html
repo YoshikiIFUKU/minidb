@@ -69,6 +69,16 @@
   #toast.show { opacity: 1; }
   #toast.error { background: var(--danger); color: #fff; }
   .file { display: none; }
+  dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text);
+           width: min(720px, 92vw); padding: 20px; }
+  dialog::backdrop { background: rgba(0, 0, 0, .45); }
+  dialog h3 { margin: 0 0 4px; font-size: 16px; }
+  dialog textarea { width: 100%; height: 260px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; resize: vertical;
+                    background: var(--cell); color: var(--text); font: 13px/1.5 ui-monospace, Consolas, monospace; white-space: pre; }
+  dialog .opts { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 8px 0; }
+  dialog .opts > div { min-width: 160px; flex: 1; }
+  dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  .err { color: var(--danger); font-size: 13px; margin: 8px 0 0; min-height: 1em; }
 </style>
 </head>
 <body>
@@ -89,8 +99,9 @@
     <div class="stack">
       <button class="btn primary" id="createBtn">作成</button>
       <button class="btn" id="createFromFileBtn">CSVファイルから作成…</button>
+      <button class="btn" id="createFromTextBtn">CSVテキストを貼り付けて作成…</button>
     </div>
-    <p class="hint">CSVファイルから作成すると、1行目がカラム名、2行目以降がデータになります。テーブル名が空ならファイル名を使います。</p>
+    <p class="hint">CSVから作成すると、1行目がカラム名、2行目以降がデータになります。ファイルから作成するとき、テーブル名が空ならファイル名を使います。</p>
     <input type="file" class="file" id="newFile" accept=".csv,.tsv,.txt">
   </aside>
 
@@ -104,6 +115,7 @@
         <button class="btn" id="addRowBtn">行を追加</button>
         <button class="btn" id="addColBtn">カラムを追加</button>
         <button class="btn" id="importBtn">CSVインポート…</button>
+        <button class="btn" id="importTextBtn">テキストで取り込み…</button>
         <select id="importMode" title="インポート方法" style="width:auto">
           <option value="append">追記する</option>
           <option value="replace">置き換える</option>
@@ -124,6 +136,37 @@
     </div>
   </main>
 </div>
+<dialog id="pasteDialog">
+  <h3 id="pasteTitle"></h3>
+  <p class="hint">1行目にカラム名、2行目以降にデータを入力してください。Excel などからコピーした表もそのまま貼り付けられます。</p>
+  <div class="opts">
+    <div id="pasteNameRow">
+      <label for="pasteName">テーブル名</label>
+      <input type="text" id="pasteName" placeholder="例: users">
+    </div>
+    <div>
+      <label for="pasteSep">区切り文字</label>
+      <select id="pasteSep">
+        <option value="auto">自動（タブがあればタブ区切り）</option>
+        <option value="comma">カンマ（CSV）</option>
+        <option value="tab">タブ（Excelからのコピー）</option>
+      </select>
+    </div>
+    <div id="pasteModeRow">
+      <label for="pasteMode">取り込み方法</label>
+      <select id="pasteMode">
+        <option value="append">追記する</option>
+        <option value="replace">置き換える</option>
+      </select>
+    </div>
+  </div>
+  <textarea id="pasteText" spellcheck="false" placeholder="id,name,age&#10;1,山田太郎,34&#10;2,佐藤花子,28"></textarea>
+  <p class="err" id="pasteError"></p>
+  <div class="actions">
+    <button class="btn" id="pasteCancel" type="button">キャンセル</button>
+    <button class="btn primary" id="pasteOk" type="button">取り込む</button>
+  </div>
+</dialog>
 <div id="toast"></div>
 
 <script>
@@ -294,12 +337,64 @@ function readFile(file) {
   });
 }
 
-async function importInto(name, file, mode) {
-  const buf = await readFile(file);
-  const q = `?mode=${mode}&filename=${encodeURIComponent(file.name)}`;
-  const res = await api('POST', '/api/tables/' + encodeURIComponent(name) + '/import' + q, undefined, buf);
+async function importRaw(name, body, mode, params) {
+  const q = new URLSearchParams({ mode, ...params });
+  const res = await api('POST', '/api/tables/' + encodeURIComponent(name) + '/import?' + q, undefined, body);
   return res.count;
 }
+
+async function importInto(name, file, mode) {
+  return importRaw(name, await readFile(file), mode, { filename: file.name });
+}
+
+// CSVテキストの貼り付け（ファイルのアップロードが禁止されている環境向け）。target が null なら新しいテーブルを作る
+let pasteTarget = null;
+
+function openPaste(forNew) {
+  if (!confirmDiscard()) return;
+  pasteTarget = forNew ? null : current.name;
+  $('pasteTitle').textContent = forNew ? 'CSVテキストから新しいテーブルを作成' : `「${current.name}」にテキストを取り込み`;
+  $('pasteNameRow').hidden = !forNew;
+  $('pasteModeRow').hidden = forNew;
+  $('pasteName').value = forNew ? $('newName').value.trim() : '';
+  $('pasteText').value = '';
+  $('pasteError').textContent = '';
+  $('pasteDialog').showModal();
+  (forNew && !$('pasteName').value ? $('pasteName') : $('pasteText')).focus();
+}
+
+$('pasteCancel').onclick = () => $('pasteDialog').close();
+
+$('pasteOk').onclick = async () => {
+  const text = $('pasteText').value;
+  const sep = $('pasteSep').value;
+  $('pasteError').textContent = '';
+  try {
+    if (!text.trim()) throw new Error('CSVテキストを入力してください');
+    if (pasteTarget === null) {
+      const name = $('pasteName').value.trim();
+      if (!name) throw new Error('テーブル名を入力してください');
+      if (tables.includes(name)) throw new Error(`テーブル「${name}」は既にあります。そのテーブルを開いて「テキストで取り込み」を使ってください`);
+      const n = await importRaw(name, text, 'append', { sep });
+      $('pasteDialog').close();
+      $('newName').value = ''; $('newCols').value = '';
+      toast(`テーブル「${name}」を作成し、${n} 行を取り込みました`);
+      await openTable(name);
+    } else {
+      const mode = $('pasteMode').value;
+      if (mode === 'replace' && !confirm(`テーブル「${pasteTarget}」の内容を、入力したテキストの内容で置き換えます。よろしいですか？`)) return;
+      const n = await importRaw(pasteTarget, text, mode, { sep });
+      $('pasteDialog').close();
+      toast(`${n} 行を取り込みました`);
+      await openTable(pasteTarget);
+    }
+  } catch (e) {
+    $('pasteError').textContent = e.message;
+  }
+};
+
+$('createFromTextBtn').onclick = () => openPaste(true);
+$('importTextBtn').onclick = () => openPaste(false);
 
 $('createBtn').onclick = () => run(async () => {
   const name = $('newName').value.trim();

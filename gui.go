@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -108,8 +109,16 @@ func gui(args []string) {
 		if err != nil {
 			fail("ファイルを受け取れませんでした（100MBまで）: %v", err)
 		}
+		// 区切り文字: sep の指定が優先。無ければファイル名の拡張子（.tsv/.txt ならタブ）から決める
 		q := r.URL.Query()
-		n := importData(r.PathValue("name"), raw, q.Get("filename"), q.Get("mode"))
+		sep := q.Get("sep")
+		if sep == "" {
+			sep = "comma"
+			if ext := strings.ToLower(filepath.Ext(q.Get("filename"))); ext == ".tsv" || ext == ".txt" {
+				sep = "tab"
+			}
+		}
+		n := importData(r.PathValue("name"), raw, sep, q.Get("mode"))
 		return map[string]int{"count": n}
 	})
 

@@ -255,17 +255,30 @@ func dropTable(name string) {
 	check(os.Remove(p))
 }
 
-// CSV/TSV を取り込む。1行目はカラム名。テーブルやカラムが無ければ作る。mode: append（追記）/ replace（置き換え）
-func importData(name string, raw []byte, filename, mode string) int {
+// CSV/TSV を取り込む。1行目はカラム名。テーブルやカラムが無ければ作る。
+// sepName: comma / tab / auto（1行目にタブがあればタブ区切り。Excelからコピーした表はタブ区切りになる）
+// mode: append（追記）/ replace（置き換え）
+func importData(name string, raw []byte, sepName, mode string) int {
 	if mode != "append" && mode != "replace" {
 		fail("取り込み方法は append か replace を指定してください")
 	}
-	ext := strings.ToLower(filepath.Ext(filename))
-	sep := ','
-	if ext == ".tsv" || ext == ".txt" {
+	text := decodeText(raw)
+	var sep rune
+	switch sepName {
+	case "comma":
+		sep = ','
+	case "tab":
 		sep = '\t'
+	case "auto", "":
+		first, _, _ := strings.Cut(text, "\n")
+		sep = ','
+		if strings.Contains(first, "\t") {
+			sep = '\t'
+		}
+	default:
+		fail("区切り文字は comma / tab / auto を指定してください")
 	}
-	data := parseCSV(decodeText(raw), sep)
+	data := parseCSV(text, sep)
 	if len(data) == 0 {
 		fail("ファイルが空です")
 	}
