@@ -255,6 +255,26 @@ func dropTable(name string) {
 	check(os.Remove(p))
 }
 
+func renameTable(oldName, newName string) {
+	newName = strings.TrimSpace(newName)
+	from, to := pathOf(oldName), pathOf(newName)
+	if !exists(from) {
+		fail("テーブルが存在しません: %s", oldName)
+	}
+	if oldName == newName {
+		return
+	}
+	// 変更先が既にあれば拒否。ただし大文字小文字だけの変更（Windows/macOSでは同じファイル）は許可する
+	if toInfo, err := os.Stat(to); err == nil {
+		fromInfo, err := os.Stat(from)
+		check(err)
+		if !os.SameFile(fromInfo, toInfo) {
+			fail("テーブルは既に存在します: %s", newName)
+		}
+	}
+	check(os.Rename(from, to))
+}
+
 // CSV/TSV を取り込む。1行目はカラム名。テーブルやカラムが無ければ作る。
 // sepName: comma / tab / auto（1行目にタブがあればタブ区切り。Excelからコピーした表はタブ区切りになる）
 // mode: append（追記）/ replace（置き換え）

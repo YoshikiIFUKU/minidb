@@ -104,6 +104,14 @@ func gui(args []string) {
 		dropTable(r.PathValue("name"))
 		return map[string]bool{"ok": true}
 	})
+	handle("POST /api/tables/{name}/rename", func(r *http.Request) interface{} {
+		var req struct {
+			Name string `json:"name"`
+		}
+		readJSON(r, &req)
+		renameTable(r.PathValue("name"), req.Name)
+		return map[string]bool{"ok": true}
+	})
 	handle("POST /api/tables/{name}/import", func(r *http.Request) interface{} {
 		raw, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, maxUpload))
 		if err != nil {

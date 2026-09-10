@@ -121,6 +121,7 @@
           <option value="replace">置き換える</option>
         </select>
         <button class="btn primary" id="saveBtn">保存</button>
+        <button class="btn" id="renameBtn">名前を変更…</button>
         <button class="btn danger" id="dropBtn">テーブル削除</button>
         <input type="file" class="file" id="importFile" accept=".csv,.tsv,.txt">
       </div>
@@ -451,6 +452,21 @@ $('importFile').onchange = e => run(async () => {
   const n = await importInto(current.name, file, mode);
   toast(`${n} 行を取り込みました`);
   await openTable(current.name);
+});
+
+// 名前だけ変える。未保存の編集はそのまま残り、次の保存で新しい名前のテーブルに書き込まれる
+$('renameBtn').onclick = () => run(async () => {
+  const input = prompt('新しいテーブル名\n（他システムのコマンドで古い名前を使っている場合は、そちらも変更が必要です）', current.name);
+  if (input === null) return;
+  const name = input.trim();
+  if (!name || name === current.name) return;
+  const old = current.name;
+  await api('POST', '/api/tables/' + encodeURIComponent(old) + '/rename', { name });
+  current.name = name;
+  $('tableTitle').textContent = name;
+  updateCli();
+  toast(`テーブル名を「${old}」から「${name}」に変更しました`);
+  await loadTables();
 });
 
 $('dropBtn').onclick = () => run(async () => {
