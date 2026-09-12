@@ -9,9 +9,9 @@ rm -rf dist && mkdir -p dist
 for target in windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
   os="${target%/*}"; arch="${target#*/}"
   ext=""; [ "$os" = "windows" ] && ext=".exe"
-  name="minidb-$VERSION-$os-$arch"
+  name="sampledb-$VERSION-$os-$arch"
   mkdir -p "dist/$name"
-  CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "dist/$name/minidb$ext" .
+  CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "dist/$name/sampledb$ext" .
   cp README.md sample_users.csv "dist/$name/"
   # 配布用アーカイブ: Windows は zip、Mac/Linux は実行権限を保持できる tar.gz
   if [ "$os" = "windows" ]; then

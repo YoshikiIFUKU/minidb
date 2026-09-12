@@ -1,4 +1,4 @@
-// MiniDb - サンプル用の簡易データベース（Windows / macOS / Linux 対応）
+// SampleDB - サンプル用の簡易データベース（Windows / macOS / Linux 対応）
 // テーブルはデータフォルダ内の CSV ファイル（UTF-8）として保存される。
 // データの編集は GUI（ブラウザで開く管理画面、gui.go）で行い、コマンドラインは内容の出力に使う。
 // 結果は標準出力、メッセージとエラーは標準エラー出力に出すので、他システムからパイプで利用できる。
@@ -103,7 +103,10 @@ func run(argv []string) (code int) {
 
 	dataDir = takeOption(&args, "--db")
 	if dataDir == "" {
-		dataDir = os.Getenv("MINIDB_DIR")
+		dataDir = os.Getenv("SAMPLEDB_DIR")
+	}
+	if dataDir == "" {
+		dataDir = os.Getenv("MINIDB_DIR") // 旧名（minidb）の設定も引き続き使えるようにする
 	}
 	if dataDir == "" {
 		dataDir = filepath.Join(exeDir(), "data")
@@ -119,7 +122,7 @@ func run(argv []string) (code int) {
 	case "help", "-h", "--help":
 		usage(out)
 	case "version", "--version":
-		fmt.Fprintln(out, "minidb", version)
+		fmt.Fprintln(out, "sampledb", version)
 	case "gui":
 		gui(args)
 	case "select":
@@ -133,7 +136,7 @@ func run(argv []string) (code int) {
 			fmt.Fprintln(out, c)
 		}
 	default:
-		fail("不明なコマンドです: %s（help で使い方を表示。データの編集は minidb gui で行えます）", cmd)
+		fail("不明なコマンドです: %s（help で使い方を表示。データの編集は sampledb gui で行えます）", cmd)
 	}
 	return 0
 }
@@ -147,9 +150,16 @@ func selectRows(args []string) {
 	}
 	noHeader := takeFlag(&args, "--no-header")
 	limitStr := takeOption(&args, "--limit")
+	sortCol := takeOption(&args, "--sort")
+	desc := takeFlag(&args, "--desc")
+	distinct := takeFlag(&args, "--distinct")
 	wheres := takeOptions(&args, "--where")
 	name := need(args, 0, "テーブル名")
 	t := load(name)
+
+	if desc && sortCol == "" {
+		fail("--desc は --sort と一緒に指定してください")
+	}
 
 	cols := t.Columns
 	if len(args) > 1 && args[1] != "*" {
@@ -162,21 +172,42 @@ func selectRows(args []string) {
 		outCols[i] = t.Columns[idx[i]]
 	}
 
+	// 絞り込み → 並び替え → 重複除去 → 件数制限 の順に処理する
 	rows := filter(t, wheres)
+	if sortCol != "" {
+		si := t.IndexOf(sortCol)
+		sort.SliceStable(rows, func(a, b int) bool {
+			x, y := t.Rows[rows[a]][si], t.Rows[rows[b]][si]
+			if desc {
+				return lessCell(y, x)
+			}
+			return lessCell(x, y)
+		})
+	}
+
+	result := make([][]string, 0, len(rows))
+	seen := map[string]bool{}
+	for _, r := range rows {
+		row := make([]string, len(idx))
+		for j, k := range idx {
+			row[j] = t.Rows[r][k]
+		}
+		if distinct {
+			key := strings.Join(row, "\x00")
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		}
+		result = append(result, row)
+	}
 	if limitStr != "" {
 		n, err := strconv.Atoi(limitStr)
 		if err != nil || n < 0 {
 			fail("--limit には0以上の整数を指定してください: %s", limitStr)
 		}
-		if n < len(rows) {
-			rows = rows[:n]
-		}
-	}
-	result := make([][]string, len(rows))
-	for i, r := range rows {
-		result[i] = make([]string, len(idx))
-		for j, k := range idx {
-			result[i][j] = t.Rows[r][k]
+		if n < len(result) {
+			result = result[:n]
 		}
 	}
 
@@ -400,6 +431,16 @@ func match(actual, op, expected string) bool {
 	}
 }
 
+// 並び替え用の比較。数値同士なら数値として、そうでなければ文字列として比べる
+func lessCell(a, b string) bool {
+	x, errA := strconv.ParseFloat(strings.TrimSpace(a), 64)
+	y, errB := strconv.ParseFloat(strings.TrimSpace(b), 64)
+	if errA == nil && errB == nil {
+		return x < y
+	}
+	return a < b
+}
+
 // ---------- 保存 ----------
 
 var nameRe = regexp.MustCompile(`^[\p{L}\p{N}_\-]+$`)
@@ -594,14 +635,20 @@ func jsonString(s string) []byte {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprint(w, `MiniDb `+version+` - 簡易データベース
+	fmt.Fprint(w, `SampleDB `+version+` - 簡易データベース
 
-使い方: minidb <コマンド> [引数] [オプション]
+使い方: sampledb <コマンド> [引数] [オプション]
 
   gui                                             管理画面をブラウザで開く（テーブル作成・編集・CSVインポート）
                                                   ※ 引数なしでダブルクリック起動した場合もこれになる
-  select  <テーブル> [カラム1,カラム2 | *] [--where 条件]... [--format csv|tsv|json|value] [--no-header] [--limit N]
+  select  <テーブル> [カラム1,カラム2 | *] [オプション]
                                                   該当データを標準出力へ
+                                                  --where 条件      絞り込み（複数指定は AND）
+                                                  --sort カラム      並び替え（--desc で降順）
+                                                  --distinct        重複する行をまとめて一意にする
+                                                  --format 形式      csv（既定）/ tsv / json / value
+                                                  --no-header       見出し行を出さない
+                                                  --limit N         最大N件まで
   tables                                          テーブル一覧を標準出力へ
   columns <テーブル>                              カラム一覧を標準出力へ
   version                                         バージョン表示
@@ -610,7 +657,7 @@ func usage(w io.Writer) {
                複数指定は AND。数値同士なら数値として比較。
 
 共通オプション:
-  --db <フォルダ>        データ保存先（既定: 実行ファイルと同じ場所の data フォルダ。環境変数 MINIDB_DIR でも可）
+  --db <フォルダ>        データ保存先（既定: 実行ファイルと同じ場所の data フォルダ。環境変数 SAMPLEDB_DIR でも可）
   --encoding utf8|sjis   標準出力の文字コード（既定: utf8）
 gui のオプション:
   --port <番号>          管理画面のポート（既定: 空いているポートを自動で使う）

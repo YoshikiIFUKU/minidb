@@ -140,7 +140,7 @@ func gui(args []string) {
 		mux.ServeHTTP(w, r)
 	})
 
-	info("MiniDb %s 管理画面を起動しました", version)
+	info("SampleDB %s 管理画面を起動しました", version)
 	info("  URL        : %s", url)
 	info("  データ保存先: %s", dataDir)
 	info("ブラウザが開かない場合は上のURLをブラウザに貼り付けてください。")
