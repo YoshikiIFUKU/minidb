@@ -537,11 +537,11 @@ function updateCli() {
   const pick = cols.slice(0, 2).join(',');
   const first = cols[0];
   const sample = (current.rows[0]?.[0] ?? '値').split('\n')[0];
-  $('cliAll').textContent = `sampledb select ${n}`;
-  $('cliCols').textContent = `sampledb select ${n} ${quoteArg(pick || '*')}`
+  $('cliAll').textContent = `SampleDBApp select ${n}`;
+  $('cliCols').textContent = `SampleDBApp select ${n} ${quoteArg(pick || '*')}`
     + (first ? ` --where ${quoteArg(first + '=' + sample)}` : '')
     + ' --format json';
-  $('cliDistinct').textContent = `sampledb select ${n} ${quoteArg(first || '*')} --distinct`
+  $('cliDistinct').textContent = `SampleDBApp select ${n} ${quoteArg(first || '*')} --distinct`
     + (first ? ` --sort ${quoteArg(first)}` : '');
 }
 

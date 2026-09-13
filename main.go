@@ -122,7 +122,7 @@ func run(argv []string) (code int) {
 	case "help", "-h", "--help":
 		usage(out)
 	case "version", "--version":
-		fmt.Fprintln(out, "sampledb", version)
+		fmt.Fprintln(out, "SampleDBApp", version)
 	case "gui":
 		gui(args)
 	case "select":
@@ -136,7 +136,7 @@ func run(argv []string) (code int) {
 			fmt.Fprintln(out, c)
 		}
 	default:
-		fail("不明なコマンドです: %s（help で使い方を表示。データの編集は sampledb gui で行えます）", cmd)
+		fail("不明なコマンドです: %s（help で使い方を表示。データの編集は SampleDBApp gui で行えます）", cmd)
 	}
 	return 0
 }
@@ -637,7 +637,7 @@ func jsonString(s string) []byte {
 func usage(w io.Writer) {
 	fmt.Fprint(w, `SampleDB `+version+` - 簡易データベース
 
-使い方: sampledb <コマンド> [引数] [オプション]
+使い方: SampleDBApp <コマンド> [引数] [オプション]
 
   gui                                             管理画面をブラウザで開く（テーブル作成・編集・CSVインポート）
                                                   ※ 引数なしでダブルクリック起動した場合もこれになる

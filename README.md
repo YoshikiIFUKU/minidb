@@ -8,7 +8,7 @@
 
 ## 管理画面
 
-実行ファイルを**ダブルクリック**すると、ブラウザで管理画面が開きます（コマンドでは `sampledb gui`）。
+実行ファイルを**ダブルクリック**すると、ブラウザで管理画面が開きます（コマンドでは `SampleDBApp gui`）。
 
 **テーブルの操作**
 - 作成（カラムを指定 / CSVファイルから / CSVテキストを貼り付けて）、名前の変更、削除
@@ -33,16 +33,16 @@
 ## 出力コマンド
 
 ```
-sampledb select users                              # テーブル全体（CSV）
-sampledb select users name,age --where dept=開発    # カラムと条件を指定
-sampledb select users dept --distinct               # 重複を除いて一意な値だけ
-sampledb select users --sort age --desc             # 並び替え（降順）
-sampledb select users --format json                 # JSONで出力
-sampledb tables                                     # テーブル一覧
-sampledb columns users                              # カラム一覧
+SampleDBApp select users                              # テーブル全体（CSV）
+SampleDBApp select users name,age --where dept=開発    # カラムと条件を指定
+SampleDBApp select users dept --distinct               # 重複を除いて一意な値だけ
+SampleDBApp select users --sort age --desc             # 並び替え（降順）
+SampleDBApp select users --format json                 # JSONで出力
+SampleDBApp tables                                     # テーブル一覧
+SampleDBApp columns users                              # カラム一覧
 ```
 
-出力例（`sampledb select users name,age --where dept=開発`）:
+出力例（`SampleDBApp select users name,age --where dept=開発`）:
 
 ```
 name,age
@@ -73,9 +73,10 @@ name,age
 
 ## macOS / Linux での注意
 
-- 初回は実行権限を付けてください: `chmod +x sampledb`
-- macOS でダウンロードしたファイルがブロックされる場合: `xattr -d com.apple.quarantine sampledb`
-- ダブルクリックでターミナルが開かない環境では、ターミナルで `./sampledb gui` を実行してください
+- コマンド名は大文字・小文字を区別します。`SampleDBApp` と入力してください（Windows では区別しません）
+- 初回は実行権限を付けてください: `chmod +x SampleDBApp`
+- macOS でダウンロードしたファイルがブロックされる場合: `xattr -d com.apple.quarantine SampleDBApp`
+- ダブルクリックでターミナルが開かない環境では、ターミナルで `./SampleDBApp gui` を実行してください
 
 ## ビルド（開発者向け）
 
