@@ -57,10 +57,13 @@ func gui(args []string) {
 				if rec := recover(); rec != nil {
 					status, msg := http.StatusInternalServerError, fmt.Sprint(rec)
 					var de dbError
+					var ce conflictError
 					if e, ok := rec.(error); ok {
 						msg = e.Error()
 						if errors.As(e, &de) {
 							status, msg = http.StatusBadRequest, de.msg
+						} else if errors.As(e, &ce) {
+							status, msg = http.StatusConflict, ce.msg
 						}
 					}
 					writeJSON(w, status, map[string]string{"error": msg})
@@ -88,20 +91,39 @@ func gui(args []string) {
 			Columns []string `json:"columns"`
 		}
 		readJSON(r, &req)
-		createTable(strings.TrimSpace(req.Name), req.Columns)
+		withLock(func() { createTable(strings.TrimSpace(req.Name), req.Columns) })
 		return map[string]bool{"ok": true}
 	})
 	handle("GET /api/tables/{name}", func(r *http.Request) interface{} {
-		return load(r.PathValue("name"))
+		name := r.PathValue("name")
+		var res map[string]interface{}
+		withLock(func() {
+			t := load(name)
+			res = map[string]interface{}{"columns": t.Columns, "rows": t.Rows, "version": tableVersion(name)}
+		})
+		return res
 	})
 	handle("PUT /api/tables/{name}", func(r *http.Request) interface{} {
-		var t Table
-		readJSON(r, &t)
-		replaceTable(r.PathValue("name"), &t)
-		return map[string]bool{"ok": true}
+		var req struct {
+			Columns []string   `json:"columns"`
+			Rows    [][]string `json:"rows"`
+			Version string     `json:"version"`
+		}
+		readJSON(r, &req)
+		name := r.PathValue("name")
+		var ver string
+		withLock(func() {
+			// 開いた後にコマンドなどで更新されていたら、上書きで行が消えないよう保存を止める
+			if req.Version != tableVersion(name) {
+				panic(conflictError{"このテーブルは、画面を開いた後に他の操作（コマンドなど）で更新されています"})
+			}
+			replaceTable(name, &Table{Columns: req.Columns, Rows: req.Rows})
+			ver = tableVersion(name)
+		})
+		return map[string]interface{}{"ok": true, "version": ver}
 	})
 	handle("DELETE /api/tables/{name}", func(r *http.Request) interface{} {
-		dropTable(r.PathValue("name"))
+		withLock(func() { dropTable(r.PathValue("name")) })
 		return map[string]bool{"ok": true}
 	})
 	handle("POST /api/tables/{name}/rename", func(r *http.Request) interface{} {
@@ -109,7 +131,7 @@ func gui(args []string) {
 			Name string `json:"name"`
 		}
 		readJSON(r, &req)
-		renameTable(r.PathValue("name"), req.Name)
+		withLock(func() { renameTable(r.PathValue("name"), req.Name) })
 		return map[string]bool{"ok": true}
 	})
 	handle("POST /api/tables/{name}/import", func(r *http.Request) interface{} {
@@ -126,7 +148,11 @@ func gui(args []string) {
 				sep = "tab"
 			}
 		}
-		n := importData(r.PathValue("name"), raw, sep, q.Get("mode"))
+		// 管理画面からの取り込みは、テーブルやカラムが無ければ作る（コマンドの import より寛容）
+		var n int
+		withLock(func() {
+			n = importData(r.PathValue("name"), raw, sep, q.Get("mode"), importOptions{Create: true, AddColumns: true})
+		})
 		return map[string]int{"count": n}
 	})
 

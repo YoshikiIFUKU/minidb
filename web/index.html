@@ -290,7 +290,11 @@ async function api(method, path, body, rawBody) {
   const data = await res.json().catch(() => ({
     error: res.status === 403 ? '接続できません。コンソールに表示されたURLから開き直してください。' : res.statusText
   }));
-  if (!res.ok) throw new Error(data.error || res.statusText);
+  if (!res.ok) {
+    const err = new Error(data.error || res.statusText);
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -337,7 +341,7 @@ async function loadTables() {
 
 async function openTable(name) {
   const t = await api('GET', '/api/tables/' + encodeURIComponent(name));
-  current = { name, columns: t.columns, rows: t.rows };
+  current = { name, columns: t.columns, rows: t.rows, version: t.version };
   original = JSON.parse(JSON.stringify(t));
   sortState = null;
   $('filter').value = '';
@@ -549,7 +553,21 @@ function updateCli() {
 async function save() {
   const cols = current.columns.map(c => c.trim());
   if (cols.some(c => !c)) throw new Error('空のカラム名があります');
-  await api('PUT', '/api/tables/' + encodeURIComponent(current.name), { columns: cols, rows: current.rows });
+  let res;
+  try {
+    res = await api('PUT', '/api/tables/' + encodeURIComponent(current.name),
+      { columns: cols, rows: current.rows, version: current.version });
+  } catch (e) {
+    // 開いた後にコマンドなどで行が追加されていた場合。上書きすると追加分が消えるので保存しない
+    if (e.status !== 409) throw e;
+    if (confirm(`${e.message}。\n最新の内容を開き直しますか？\n（この画面で保存していない変更は破棄されます）`)) {
+      setDirty(false);
+      await openTable(current.name);
+      toast('最新の内容を開き直しました');
+    }
+    return;
+  }
+  current.version = res.version;
   current.columns = cols;
   original = JSON.parse(JSON.stringify({ columns: current.columns, rows: current.rows }));
   setDirty(false);

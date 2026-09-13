@@ -1,6 +1,6 @@
 // SampleDB - サンプル用の簡易データベース（Windows / macOS / Linux 対応）
 // テーブルはデータフォルダ内の CSV ファイル（UTF-8）として保存される。
-// データの編集は GUI（ブラウザで開く管理画面、gui.go）で行い、コマンドラインは内容の出力に使う。
+// データの編集は GUI（ブラウザで開く管理画面、gui.go）で行い、コマンドラインは出力と行の追加（write.go）に使う。
 // 結果は標準出力、メッセージとエラーは標準エラー出力に出すので、他システムからパイプで利用できる。
 package main
 
@@ -127,6 +127,10 @@ func run(argv []string) (code int) {
 		gui(args)
 	case "select":
 		selectRows(args)
+	case "insert":
+		insertCmd(args)
+	case "import":
+		importCmd(args)
 	case "tables":
 		for _, n := range tableNames() {
 			fmt.Fprintln(out, n)
@@ -309,7 +313,8 @@ func renameTable(oldName, newName string) {
 // CSV/TSV を取り込む。1行目はカラム名。テーブルやカラムが無ければ作る。
 // sepName: comma / tab / auto（1行目にタブがあればタブ区切り。Excelからコピーした表はタブ区切りになる）
 // mode: append（追記）/ replace（置き換え）
-func importData(name string, raw []byte, sepName, mode string) int {
+// 全行を検査してから一度に保存するので、途中の行でエラーになった場合は何も書き込まれない。
+func importData(name string, raw []byte, sepName, mode string, opt importOptions) int {
 	if mode != "append" && mode != "replace" {
 		fail("取り込み方法は append か replace を指定してください")
 	}
@@ -329,19 +334,27 @@ func importData(name string, raw []byte, sepName, mode string) int {
 	default:
 		fail("区切り文字は comma / tab / auto を指定してください")
 	}
-	data := parseCSV(text, sep)
+	data, lines := parseCSVLines(text, sep)
 	if len(data) == 0 {
-		fail("ファイルが空です")
+		fail("取り込むデータが空です（1行目にカラム名が必要です）")
 	}
 	header := trimAll(data[0])
 	checkColumns(header)
 
+	tableExists := exists(pathOf(name))
+	if !tableExists && !opt.Create {
+		fail("テーブルが存在しません: %s（新しく作る場合は --create を指定してください）", name)
+	}
 	t := &Table{}
-	if exists(pathOf(name)) && mode == "append" {
+	if tableExists && mode == "append" {
 		t = load(name)
 	}
 	for _, h := range header {
 		if !t.Has(h) {
+			if tableExists && mode == "append" && !opt.AddColumns {
+				fail("カラムが存在しません: %s（存在するカラム: %s）。カラムを増やす場合は --add-columns を指定してください",
+					h, strings.Join(t.Columns, ","))
+			}
 			t.Columns = append(t.Columns, h)
 			for i := range t.Rows {
 				t.Rows[i] = append(t.Rows[i], "")
@@ -352,7 +365,11 @@ func importData(name string, raw []byte, sepName, mode string) int {
 	for i, h := range header {
 		idx[i] = t.IndexOf(h)
 	}
-	for _, src := range data[1:] {
+	for n, src := range data[1:] {
+		if opt.Strict && len(src) != len(header) {
+			fail("%d 行目の値が %d 個です（1行目のカラムは %d 個）。値にカンマや改行を含む場合は \"\" で囲んでください",
+				lines[n+1], len(src), len(header))
+		}
 		row := make([]string, len(t.Columns))
 		for i := 0; i < len(idx) && i < len(src); i++ {
 			row[idx[i]] = src[i]
@@ -497,15 +514,31 @@ func save(name string, t *Table) {
 }
 
 func parseCSV(text string, sep rune) [][]string {
+	rows, _ := parseCSVLines(text, sep)
+	return rows
+}
+
+// CSVを読み、各レコードが始まる行番号も返す（値に改行を含むとレコード番号と行番号がずれるため）
+func parseCSVLines(text string, sep rune) ([][]string, []int) {
 	r := csv.NewReader(strings.NewReader(text))
 	r.Comma = sep
 	r.FieldsPerRecord = -1
 	r.LazyQuotes = true
-	rows, err := r.ReadAll()
-	if err != nil {
-		fail("CSVの読み込みに失敗しました: %v", err)
+	var rows [][]string
+	var lines []int
+	for {
+		rec, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			fail("CSVの読み込みに失敗しました: %v", err)
+		}
+		line, _ := r.FieldPos(0)
+		rows = append(rows, rec)
+		lines = append(lines, line)
 	}
-	return rows
+	return rows, lines
 }
 
 // BOM付きUTF-8 / UTF-8 / Shift_JIS（Excelで保存したCSV）を自動判別する
@@ -649,6 +682,13 @@ func usage(w io.Writer) {
                                                   --format 形式      csv（既定）/ tsv / json / value
                                                   --no-header       見出し行を出さない
                                                   --limit N         最大N件まで
+  insert  <テーブル> カラム=値 [カラム=値 ...]     1行追加（指定しないカラムは空）
+  import  <テーブル> <ファイル | -> [オプション]   CSV/TSV の複数行を追加（- は標準入力）
+                                                  1行目がカラム名。全行を検査し、1行でも誤りがあれば何も追加しない
+                                                  --mode append|replace  追記（既定）/ 置き換え
+                                                  --sep auto|comma|tab   区切り文字（既定: 自動判別）
+                                                  --create               テーブルが無ければ作る
+                                                  --add-columns          存在しないカラムがあれば追加する
   tables                                          テーブル一覧を標準出力へ
   columns <テーブル>                              カラム一覧を標準出力へ
   version                                         バージョン表示
